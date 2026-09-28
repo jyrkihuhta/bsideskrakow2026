@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# Claude Code session config
+.claude/
+
+# local render/check scratch
+.check.html
+*.bak
+
+# Speaker notes — yours, not the internet's. Loaded by index.html when present.
+speaker-notes.js
