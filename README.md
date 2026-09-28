@@ -150,22 +150,115 @@ browser is restarted mid-talk.
 
 ## How it is built
 
-There are no slides. The deck is a single 3D space built out of CSS transforms
-(`perspective` + `preserve-3d`), and every "stop" is a camera pose inside it — a
-position, a yaw, a pitch and a dolly:
+No framework, no build step, no runtime dependencies. One `index.html` of about 130 KB
+that opens straight off the filesystem.
+
+### There are no slides
+
+`#stage` gets a CSS `perspective`, and the entire talk lives inside one `#world` element
+with `transform-style: preserve-3d`:
+
+```css
+#stage { perspective: 1400px; perspective-origin: 50% 44%; }
+#world { position: absolute; top: 50%; left: 50%; transform-style: preserve-3d; }
+```
+
+The room, both avenues, the climbing column of ideas, the architecture board and the
+fleet diagram are all anchored at fixed coordinates inside that one space, all of the
+time. A "stop" is not a slide — it is a camera pose looking at part of it.
+
+### The camera is one CSS transform
+
+A stop is seven numbers:
 
 ```js
 {px:-1500, py:2760, pz:-1400, yaw:0, pitch:6, dz:400, title:"Looking for help", ms:1700}
 ```
 
-Moving between two stops is one CSS transition on the world, which is why the
-transitions look like camera moves rather than slide changes. Content is anchored in
-the space and revealed by index with `data-show="88-92"`, so a panel appears when its
-stop arrives and stays for as long as the window says.
+and moving the camera is one string assignment:
 
-The stick figures are inline SVG rigs, animated per joint. The three films are
-background layers. Everything else — the room, the avenues, the architecture board,
-the climbing column of ideas — is CSS.
+```js
+world.style.transform =
+  `translateZ(${s.dz}px) rotateX(${s.pitch}deg) rotateY(${s.yaw}deg)` +
+  ` translate3d(${-s.px}px,${-s.py}px,${-s.pz}px)`;
+```
+
+Read it right to left. The negated `px/py/pz` slide the world until the thing you want to
+look at sits at the origin — there is no camera object, you move the world past a fixed
+viewer. Then `rotateY` and `rotateX` swing the viewpoint around it, and `translateZ`
+dollies in.
+
+That is the whole animation system. `#world` carries a CSS transition on `transform` and
+each stop's `ms` sets its duration, so the browser interpolates the move. There is no
+animation loop and no matrix maths in the file — the single `requestAnimationFrame` in
+there is watching the opening clip's playhead so the title card can come up a beat before
+it ends. It is also why the deck stays smooth with every one of the 95 stops' worth of
+content live in the DOM the entire time: one property is animating, not ninety-five
+elements.
+
+### Everything that holds text counter-rotates
+
+Text lying flat in a 3D space is unreadable the moment the camera is off-axis, so every
+panel sits in a `.bb` billboard that undoes the camera's rotation:
+
+```js
+const bbT = `rotateY(${-s.yaw}deg) rotateX(${-s.pitch}deg)`;
+```
+
+Perspective still applies — further away is still smaller — but the face of every card
+stays square to the audience.
+
+`.bb` has `transform-origin: 0 0`, which matters more than it looks. With the default
+`50% 50%` a card rotates about its own centre and drifts off the point it is anchored
+to: invisible at ±15° of yaw, half a screen wide at −152°.
+
+### Reveals are windows, not steps
+
+Panels declare the stops they exist for:
+
+```html
+<div class="anchor rv" data-show="6-15,93-94">
+```
+
+`20-` means from stop 20 to the end; a bare `18` means that stop only. The windows are
+parsed once and cached on the element, and the test is a plain range check, so what is on
+screen is a pure function of the stop index. That is what makes `index.html#57` work —
+jump anywhere and the world is already in the right state, with no steps to replay.
+
+### The figures are jointed SVG
+
+The stick figures are nested `<g class="j">` joints using `transform-box: view-box` with
+`transform-origin` given in viewBox units, so each joint rotates about the anatomically
+correct point:
+
+```css
+.thighL, .thighR, .upper { transform-origin: 160px 148px; }
+.shinL { transform-origin: 146px 180px; }
+```
+
+Sitting down at the desk is ten rotations and one transition.
+
+### Four things that cost me an evening
+
+- **An SVG filter deletes axis-aligned lines.** A filter with the default
+  `filterUnits="objectBoundingBox"` has an empty region on any zero-width or zero-height
+  box, so a hand-drawn wobble on the architecture diagram silently erased every horizontal
+  and vertical arrow — 14 of 29, including a whole five-phase row and the seven-stage
+  pipeline. The wobble is baked into the path geometry now. Geometry always renders.
+- **`transform` inside `@keyframes` replaces an element's transform,** it does not compose
+  with it. A floating animation on a card centred with `translate(-50%,-50%)` threw it a
+  quarter of a screen off the instant the animation started.
+- **`getBoundingClientRect` is not usable for layout maths inside `preserve-3d`** — every
+  measurement comes back with the current camera baked into it. Positions here are
+  authored in world coordinates instead.
+- **`<video>` inside a `preserve-3d` subtree flickers.** It is rasterised into whatever
+  layer it lands in, so every camera move and every `backdrop-filter` in the scene can
+  force its decoded frames to be re-composited. Pin it to its own compositor layer with
+  `translate3d(0,0,0)` and `will-change: transform`, and stop the ancestor clip from
+  defeating the promotion.
+
+If you want to screenshot it: headless Chrome needs `--headless=new`, and `--disable-gpu`
+switches off the 3D rendering entirely, so the whole thing comes out as garbage.
 
 ## What is in here
 
